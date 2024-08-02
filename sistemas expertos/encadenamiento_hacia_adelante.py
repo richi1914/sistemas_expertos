@@ -8,24 +8,24 @@ hechos = {
 
 reglas = [
     {
-        "condiciones": ["tiene_plumas", "puede_volar"],
-        "conclusion": "es_pajaro"
+        "condiciones": ["tiene_plumas", "puede_volar", "es_pequeño", "tiene_pico", "pone_huevos"],
+        "conclusion": "es pajaro"
     },
     {
-        "condiciones": ["tiene_plumas", "no_puede_volar"],
-        "conclusion": "es_pinguino"
+        "condiciones": ["tiene_plumas", "no_puede_volar", "es_pequeño", "tiene_pico", "pone_huevos"],
+        "conclusion": "es pinguino"
     },
     {
-        "condiciones": ["no_tiene_plumas", "puede_volar"],
-        "conclusion": "es_murcielago"
+        "condiciones": ["no_tiene_plumas", "puede_volar", "es_pequeño", "no_tiene_pico", "no_pone_huevos"],
+        "conclusion": "es murcielago"
     },
     {
-        "condiciones": ["no_tiene_plumas", "no_puede_volar"],
-        "conclusion": "es_gato"
+        "condiciones": ["no_tiene_plumas", "no_puede_volar", "es_pequeño", "no_tiene_pico", "no_pone_huevos"],
+        "conclusion": "es gato"
     },
     {
-        "condiciones": ["es_pequeño", "tiene_pico"],
-        "conclusion": "es_colibri"
+        "condiciones": ["tiene_plumas", "puede_volar", "es_pequeño", "tiene_pico", "pone_huevos"],
+        "conclusion": "es colibri"
     }
 ]
 
@@ -46,6 +46,12 @@ def encadenamiento_hacia_adelante(hechos, reglas):
                     break
         if es_aplicable:
             conclusiones.append(regla["conclusion"])
+
+    return conclusiones
+
+conclusiones = encadenamiento_hacia_adelante(hechos, reglas)
+for conclusion in conclusiones:
+    print(conclusion)
 
     return conclusiones
 
