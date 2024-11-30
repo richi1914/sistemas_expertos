@@ -5,43 +5,6 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.preprocessing import LabelEncoder
 
 
-class RedBayesianaMusica:
-    def __init__(self, cursor):
-        self.cursor = cursor
-
-    def inferir_probabilidad_genero(self, genero, duracion, estilo):
-        # Obtenemos la probabilidad del género
-        self.cursor.execute("SELECT probabilidad FROM generos WHERE nombre=%s", (genero,))
-        prob_genero = self.cursor.fetchone()
-        if prob_genero is None:
-            print(f"[DEBUG] No se encontró el género: {genero}")
-            return 0  # Si no encontramos el género, retornamos 0
-        prob_genero = prob_genero['probabilidad']
-
-        # Obtenemos la probabilidad de duración
-        self.cursor.execute("SELECT probabilidad FROM atributos WHERE genero=%s AND tipo='Duracion' AND valor=%s",
-                            (genero, duracion))
-        prob_duracion = self.cursor.fetchone()
-        if prob_duracion is None:
-            print(f"[DEBUG] No se encontró la duración '{duracion}' para el género: {genero}")
-            prob_duracion = {'probabilidad': 0}  # Si no encontramos duración, asignamos probabilidad 0
-        prob_duracion = prob_duracion['probabilidad']
-
-        # Obtenemos la probabilidad de estilo
-        self.cursor.execute("SELECT probabilidad FROM atributos WHERE genero=%s AND tipo='Estilo' AND valor=%s",
-                            (genero, estilo))
-        prob_estilo = self.cursor.fetchone()
-        if prob_estilo is None:
-            print(f"[DEBUG] No se encontró el estilo '{estilo}' para el género: {genero}")
-            prob_estilo = {'probabilidad': 0}  # Si no encontramos estilo, asignamos probabilidad 0
-        prob_estilo = prob_estilo['probabilidad']
-
-        # Calculamos la probabilidad conjunta
-        prob_conjunta = prob_genero * prob_duracion * prob_estilo
-        print(f"[DEBUG] Probabilidad para el género '{genero}': {prob_conjunta}")
-        return prob_conjunta
-
-
 class RedMusica:
     def __init__(self, modelo_tipo="Bayesiana"):
         self.modelo_tipo = modelo_tipo
@@ -61,27 +24,16 @@ class RedMusica:
                 host="localhost",
                 user="root",
                 password="elrubiusomg12",
-                database="musica_db",
+                database="musica",
                 charset="utf8mb4",
                 cursorclass=pymysql.cursors.DictCursor
             )
             self.cursor = self.conn.cursor()
-
-            if not self.cursor:
-                raise ValueError("No se pudo establecer el cursor para la base de datos.")
         except pymysql.MySQLError as e:
             raise ValueError(f"Error al conectar con la base de datos: {e}")
 
-    class RedBayesianaMusica:
-        def __init__(self, cursor):
-            if cursor is None:
-                raise ValueError("Se necesita un cursor de base de datos.")
-            self.cursor = cursor
-
     def entrenar_modelo_ml(self):
-        if not self.cursor:
-            raise ValueError("El cursor de la base de datos no está disponible.")
-
+        # Extraer datos de entrenamiento
         self.cursor.execute("SELECT genero, tipo, valor, probabilidad FROM atributos")
         datos = self.cursor.fetchall()
 
@@ -92,12 +44,10 @@ class RedMusica:
             X.append([row['tipo'], row['valor'], row['probabilidad']])
             y.append(row['genero'])
 
-        if len(X) != len(y):
-            raise ValueError(f"Discrepancia en los datos: {len(X)} muestras en X, {len(y)} etiquetas en y")
-
         self.le_tipo = LabelEncoder()
         self.le_valor = LabelEncoder()
 
+        # Codificar las características categóricas
         tipos = [x[0] for x in X]
         valores = [x[1] for x in X]
         probabilidades = [x[2] for x in X]
@@ -105,32 +55,80 @@ class RedMusica:
         tipos_codificados = self.le_tipo.fit_transform(tipos)
         valores_codificados = self.le_valor.fit_transform(valores)
 
-        X = list(zip(tipos_codificados, valores_codificados, probabilidades))
+        X_codificado = list(zip(tipos_codificados, valores_codificados, probabilidades))
 
-        self.modelo_ml.fit(X, y)
+        # Entrenar el modelo
+        self.modelo_ml.fit(X_codificado, y)
 
     def diagnostico(self, duracion, estilo):
-        if not self.cursor:
-            raise ValueError("El cursor de la base de datos no está disponible.")
+        if self.modelo_tipo == "Bayesiana":
+            return self.red_bayesiana.diagnostico(duracion, estilo)
+        elif self.modelo_tipo == "ML":
+            return self.diagnostico_ml(duracion, estilo)
 
+    def diagnostico_ml(self, duracion, estilo):
+        # Preparar la entrada para el modelo ML
+        duracion_cod = self.le_tipo.transform(["Duracion"])[0]
+        estilo_cod = self.le_tipo.transform(["Estilo"])[0]
+        duracion_val_cod = self.le_valor.transform([duracion])[0]
+        estilo_val_cod = self.le_valor.transform([estilo])[0]
+
+        X_test = [
+            [duracion_cod, duracion_val_cod, 1],
+            [estilo_cod, estilo_val_cod, 1]
+        ]
+
+        # Predicciones
+        predicciones = self.modelo_ml.predict(X_test)
+        probabilidades = {genero: 0 for genero in set(predicciones)}
+        for pred in predicciones:
+            probabilidades[pred] += 1
+
+        total = sum(probabilidades.values())
+        for genero in probabilidades:
+            probabilidades[genero] /= total
+
+        genero_recomendado = max(probabilidades, key=probabilidades.get)
+        return genero_recomendado, probabilidades
+
+
+class RedBayesianaMusica:
+    def __init__(self, cursor):
+        self.cursor = cursor
+
+    def diagnostico(self, duracion, estilo):
         self.cursor.execute("SELECT nombre FROM generos")
         generos = self.cursor.fetchall()
         probabilidades = {}
 
         for genero in generos:
-            genero_nombre = genero['nombre']
-            probabilidades[genero_nombre] = self.red_bayesiana.inferir_probabilidad_genero(genero_nombre, duracion,
-                                                                                           estilo)
+            nombre_genero = genero['nombre']
+            prob = self.inferir_probabilidad_genero(nombre_genero, duracion, estilo)
+            probabilidades[nombre_genero] = prob
 
         total_prob = sum(probabilidades.values())
         if total_prob == 0:
-            return "No hay suficientes datos para recomendar", None
+            return "Sin datos suficientes para recomendar", None
 
         for genero in probabilidades:
             probabilidades[genero] /= total_prob
 
         genero_recomendado = max(probabilidades, key=probabilidades.get)
         return genero_recomendado, probabilidades
+
+    def inferir_probabilidad_genero(self, genero, duracion, estilo):
+        self.cursor.execute("SELECT probabilidad FROM generos WHERE nombre=%s", (genero,))
+        prob_genero = self.cursor.fetchone()['probabilidad']
+
+        self.cursor.execute("SELECT probabilidad FROM atributos WHERE genero=%s AND tipo='Duracion' AND valor=%s",
+                            (genero, duracion))
+        prob_duracion = self.cursor.fetchone()['probabilidad']
+
+        self.cursor.execute("SELECT probabilidad FROM atributos WHERE genero=%s AND tipo='Estilo' AND valor=%s",
+                            (genero, estilo))
+        prob_estilo = self.cursor.fetchone()['probabilidad']
+
+        return prob_genero * prob_duracion * prob_estilo
 
 
 class AplicacionMusica(tk.Tk):
@@ -139,7 +137,7 @@ class AplicacionMusica(tk.Tk):
         self.title("Recomendador de Música")
         self.geometry("400x300")
 
-        self.modelo_tipo = "Bayesiana"  # Predeterminado
+        self.modelo_tipo = "Bayesiana"
         self.red = RedMusica(self.modelo_tipo)
 
         self.label_duracion = tk.Label(self, text="Duración de la canción:")
